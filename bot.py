@@ -12,6 +12,7 @@ from handlers import (
     find_employee,
     payments,
     edit_profile,
+    subscription,  # Add the new subscription handler
 )
 from update_free_vacancies import update_vacancies
 import threading
@@ -30,6 +31,7 @@ async def main():
     dp.include_router(find_job.router)
     dp.include_router(find_employee.router)
     dp.include_router(payments.router)
+    dp.include_router(subscription.router)  # Add the new subscription router
     logger.info("Starting scheduler thread for updating vacancies")
     scheduler_thread = threading.Thread(target=update_vacancies)
     scheduler_thread.start()

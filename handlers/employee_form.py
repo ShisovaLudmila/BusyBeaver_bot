@@ -4,6 +4,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram import types
 import re
 from create_bot import bot
+from aiogram.filters import Command
+from state_list import STATE_LIST_EMPLOYEE
 
 from state_list import employee
 from all_kb import (
@@ -36,19 +38,11 @@ router = Router()
 @router.message(F.text == "соискатель")
 async def employee_selection(message: Message, state: FSMContext):
     logger.info(f"Received message from user {message.from_user.id}: {message.text}")
-    if db.get_tg_id_employee(message.from_user.id) != None:
-        logger.info(f"User {message.from_user.id} already has a filled questionnaire.")
-        await message.answer(
-            "У вас уже есть заполненная анкета, по желанию вы можете получить данные или отредактировать данные ",
-            reply_markup=main_kb,
-        )
-    else:
-        # await message.answer("Для того, чтобы продолжить пользоваться сервисом, заполните данную анкету, строго отвечайте на заданные вопросы")
-        logger.info(
-            f"User {message.from_user.id} does not have a filled questionnaire. Starting new questionnaire."
-        )
-        await state.set_state(employee.name)
-        await message.answer("Введите имя:", reply_markup=first_question_kb)
+    # Removed the check for existing profile to allow multiple profiles
+    # Start the form filling process directly
+    logger.info(f"User {message.from_user.id} is starting to fill a new employee profile.")
+    await state.set_state(employee.name)
+    await message.answer("Введите имя:", reply_markup=first_question_kb)
 
 
 @router.message(employee.confirm, F.text == "начать сначала")
@@ -126,7 +120,7 @@ async def city_selection(message: types.Message, state: FSMContext):
     await state.set_state(employee.time_zone)
 
     await message.answer(
-        "Выберете ваш часовой пояс стрелками < > и нажмите на число",
+        "Выберите ваш часовой пояс (UTC) с помощью стрелок < > и нажмите на число для подтверждения:",
         reply_markup=change_keyboard_time_zone(),
     )
 
@@ -158,12 +152,17 @@ async def callback_change_timezone(call: types.CallbackQuery, state: FSMContext)
     employee.time_zone,
 )
 async def callback_timezone_selection(call: types.CallbackQuery, state: FSMContext):
-    logger.info(f"User {call.from_user.id} is entering their time zone: {call.data}")
-
-    logger.info(f"User {call.from_user.id} entered a valid time zone: {call.data}")
+    logger.info(f"User {call.from_user.id} confirmed their time zone selection")
+    data = await state.get_data()
+    timezone_value = data.get("time_zone", 0)
+    
+    # Explicitly save the time zone value to state
+    await state.update_data(time_zone=timezone_value)
+    
+    logger.info(f"User {call.from_user.id} selected time zone: UTC{'+' if timezone_value > 0 else ''}{timezone_value}")
     await state.set_state(employee.job_title)
     await call.message.answer(
-        "Выберете должность из предложенных вариантов:", reply_markup=job_title_kb
+        "Выберите должность из предложенных вариантов:", reply_markup=job_title_kb
     )
 
 
@@ -174,7 +173,7 @@ async def job_title_selection_full_time(call: types.CallbackQuery, state: FSMCon
 
     await state.set_state(employee.role)
     data = await state.get_data()
-    role_kb = data["role"] if "role" in data else []
+    role_kb = data.get("role", [])
     logger.info(f"User {call.from_user.id} is selecting a role.")
     await call.message.answer(
         "Выберите желаемую роль:", reply_markup=create_role_kb(role_kb)
@@ -214,7 +213,7 @@ async def hours_selection(call: types.CallbackQuery, state: FSMContext):
     await state.update_data(hours=call.data)
 
     data = await state.get_data()
-    role_kb = data["role"] if "role" in data else []
+    role_kb = data.get("role", [])
     logger.info(f"User {call.from_user.id} is selecting a role.")
     await call.message.answer(
         "Выберите желаемую роль:", reply_markup=create_role_kb(role_kb)
@@ -254,7 +253,6 @@ async def role_selection(call: types.CallbackQuery, state: FSMContext):
         if old_kb != new_kb_list:
             await call.message.edit_reply_markup(reply_markup=new_kb)
     else:
-
         logger.info(f"User {call.from_user.id} completed role selection.")
         await call.message.answer(
             "Сколько у вас лет опыта:", reply_markup=year_of_exp_kb
@@ -272,7 +270,7 @@ async def year_of_exp_selection(call: types.CallbackQuery, state: FSMContext):
 
     logger.info(f"User {call.from_user.id} is asked to send their resume.")
     await call.message.answer(
-        "Отправьте свое резюме ссылкой на гугл или андекс диск:",
+        "Отправьте ссылку на ваше резюме (Google Drive или Яндекс Диск):",
         reply_markup=questions_kb,
     )
     await state.set_state(employee.resume)
@@ -285,40 +283,35 @@ async def resume(message: types.Message, state: FSMContext):
         f"User {message.from_user.id} is entering their resume link: {message.text}"
     )
     if re.fullmatch(r"^(https?:\/\/)?([\w-]{1,32}\.[\w-]{1,32})[^\s@]*$", message.text):
-        if (
-            re.search(
-                r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]",
-                message.text,
-            )[0]
-            == "drive.google.com"
-            or re.search(
-                r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]",
-                message.text,
-            )[0]
-            == "disk.yandex.ru"
+        domain_match = re.search(
+            r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]",
+            message.text,
+        )
+        if domain_match and (
+            domain_match[0] == "drive.google.com" or domain_match[0] == "disk.yandex.ru"
         ):
             await state.update_data(resume=message.text)
             logger.info(
                 f"User {message.from_user.id} entered a valid resume link: {message.text}"
             )
             await message.answer(
-                "Отправьте свою видео визитку ссылкой на гугл или андекс диск:",
+                "Отправьте ссылку на вашу видео-визитку (Google Drive или Яндекс Диск):",
                 reply_markup=questions_kb,
             )
             await state.set_state(employee.video)
         else:
             logger.warning(
-                f"User {message.from_user.id} entered an invalid resume link domain: {re.search(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]', message.text)[0]}"
+                f"User {message.from_user.id} entered an invalid resume link domain: {domain_match[0] if domain_match else 'None'}"
             )
             await message.answer(
-                "Отправьте свое резюме повторно ссылкой на гугл или андекс диск:"
+                "Пожалуйста, отправьте ссылку на Google Drive или Яндекс Диск:"
             )
     else:
         logger.warning(
             f"User {message.from_user.id} entered an invalid resume link: {message.text}"
         )
         await message.answer(
-            "Отправьте свое резюме повторно ссылкой на гугл или яндекс диск:"
+            "Пожалуйста, отправьте корректную ссылку на Google Drive или Яндекс Диск:"
         )
 
 
@@ -328,17 +321,12 @@ async def video(message: types.Message, state: FSMContext):
         f"User {message.from_user.id} is entering their video link: {message.text}"
     )
     if re.fullmatch(r"^(https?:\/\/)?([\w-]{1,32}\.[\w-]{1,32})[^\s@]*$", message.text):
-        if (
-            re.search(
-                r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]",
-                message.text,
-            )[0]
-            == "drive.google.com"
-            or re.search(
-                r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]",
-                message.text,
-            )[0]
-            == "disk.yandex.ru"
+        domain_match = re.search(
+            r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]",
+            message.text,
+        )
+        if domain_match and (
+            domain_match[0] == "drive.google.com" or domain_match[0] == "disk.yandex.ru"
         ):
             await state.update_data(video=message.text)
             logger.info(
@@ -347,17 +335,17 @@ async def video(message: types.Message, state: FSMContext):
             await update_on_reject(message, state)
         else:
             logger.warning(
-                f"User {message.from_user.id} entered an invalid video link domain: {re.search(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]', message.text)[0]}"
+                f"User {message.from_user.id} entered an invalid video link domain: {domain_match[0] if domain_match else 'None'}"
             )
             await message.answer(
-                "Отправьте свою видео визитку повторно ссылкой на гугл или андекс диск:"
+                "Пожалуйста, отправьте ссылку на Google Drive или Яндекс Диск:"
             )
     else:
         logger.warning(
             f"User {message.from_user.id} entered an invalid video link: {message.text}"
         )
         await message.answer(
-            "Отправьте свою видео визитку повторно ссылкой на гугл или андекс диск:"
+            "Пожалуйста, отправьте корректную ссылку на Google Drive или Яндекс Диск:"
         )
 
 
@@ -366,53 +354,72 @@ async def confirm_handler(message: types.Message, state: FSMContext):
     logger.info(f"User {message.from_user.id} is confirming their data.")
     await state.update_data(tg_id=message.from_user.id)
     data = await state.get_data()
-    await message.answer("Спасибо за вашу форму!", reply_markup=main_kb)
+    
+    # Ensure time_zone is an integer
+    time_zone = data.get("time_zone", 0)
+    if not isinstance(time_zone, int):
+        try:
+            time_zone = int(time_zone)
+        except (ValueError, TypeError):
+            time_zone = 0
+    
+    # Insert data into database
     db.insert_employee(
         data["tg_id"],
         data["name"],
         data["surname"],
         data["birthdate"],
         data["city"],
-        data["time_zone"],
+        time_zone,  # Use the integer time zone value
         data["job_title"],
-        data["hours"],
+        data.get("hours", ""),  # Use get with default for optional fields
         data["role"],
         year_of_exp_dict.get(data["year_of_exp"]),
         data["resume"],
         data["video"],
     )
+    
     logger.info(
-        f"User {message.from_user.id} data has been saved to the database with the following values:\n"
-        f"tg_id: {data['tg_id']}, name: {data['name']}, surname: {data['surname']}, birthdate: {data['birthdate']},\n"
-        f"city: {data['city']}, time_zone: {data['time_zone']}, job_title: {data['job_title']}, hours: {data['hours']},\n"
-        f"role: {data['role']}, year_of_exp: {year_of_exp_dict.get(data['year_of_exp'])}, resume: {data['resume']}, video: {data['video']}"
+        f"User {message.from_user.id} data has been saved to the database with time_zone: {time_zone}"
     )
+    
+    # Send success message
+    await message.answer(
+        "Ваш аккаунт создан, теперь найти работу будет быстрее. Вы можете искать подходящие для вас вакансии и метчиться с работодателями!",
+        reply_markup=main_kb
+    )
+    
     await state.clear()
 
 
 async def update_on_reject(message: Message, state: FSMContext):
     await state.set_state(employee.confirm)
     data = await state.get_data()
-    hours_info = data["hours"] if "hours" in data else ""
-    roles = ", ".join(data["role"]) if "role" in data else ""
+    hours_info = data.get("hours", "")
+    roles = ", ".join(data["role"]) if isinstance(data.get("role"), list) else data.get("role", "")
+    
+    # Format time zone with UTC prefix
+    time_zone = data.get("time_zone", 0)
+    time_zone_display = f"UTC{'+' if int(time_zone) > 0 else ''}{time_zone}"
+    
     await state.update_data(hours=hours_info)
     await state.update_data(role=roles)
     hours_msg = f"<b>Количество часов</b>: {hours_info}\n" if hours_info != "" else ""
-    data = await state.get_data()
+    
     logger.info(
         f"User {message.from_user.id} is reviewing their data before confirmation."
     )
     await message.answer(
         (
-            f"Ваш данные указанные выше:\n"
+            f"Ваши данные указанные выше:\n"
             f"<b>Имя</b>: {data['name']}\n"
             f"<b>Фамилия</b>: {data['surname']}\n"
             f"<b>Дата рождения</b>: {data['birthdate']}\n"
             f"<b>Город</b>: {data['city']}\n"
-            f"<b>Часовой пояс</b>: {data['time_zone']}\n"
+            f"<b>Часовой пояс</b>: {time_zone_display}\n"
             f"<b>Должность</b>: {data['job_title']}\n"
             f"{hours_msg}"
-            f"<b>Рол</b>:{data['role']}\n"
+            f"<b>Роли</b>: {roles}\n"
             f"<b>Кол-во лет опыта</b>: {data['year_of_exp']}\n"
             f"<b>Резюме</b>: {data['resume']}\n"
             f"<b>Видеовизитка</b>: {data['video']}\n"
@@ -420,3 +427,33 @@ async def update_on_reject(message: Message, state: FSMContext):
         parse_mode="HTML",
         reply_markup=confirm_kb,
     )
+
+@router.message(Command("на главное меню"), employee)
+async def interrupt_with_main_menu(message: Message, state: FSMContext):
+    logger.info(f"User {message.from_user.id} interrupted profile creation with main menu command")
+    await state.clear()
+    await message.answer("Создание профиля отменено. Вы вернулись в главное меню.", reply_markup=main_kb)
+
+@router.message(Command("отмена"), employee)
+async def interrupt_with_cancel(message: Message, state: FSMContext):
+    logger.info(f"User {message.from_user.id} interrupted profile creation with cancel command")
+    await state.clear()
+    await message.answer("Создание профиля отменено.", reply_markup=main_kb)
+
+@router.message(Command("помощь"), employee)
+async def help_during_profile(message: Message, state: FSMContext):
+    logger.info(f"User {message.from_user.id} requested help during profile creation")
+    current_state = await state.get_state()
+    
+    await message.answer(
+        "Вы находитесь в процессе создания профиля соискателя. "
+        "Пожалуйста, следуйте инструкциям бота для заполнения всех полей. "
+        "Вы можете использовать команду /отмена, чтобы прервать создание профиля, "
+        "или /на_главное_меню, чтобы вернуться в главное меню.",
+        reply_markup=None
+    )
+    
+    # Continue with the current state
+    state_item = next((item for item in STATE_LIST_EMPLOYEE if item.state_name == current_state), None)
+    if state_item:
+        await message.answer(state_item.state_question, reply_markup=state_item.keyboard)
