@@ -17,6 +17,25 @@ choose_role_kb = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 
+def get_main_kb(is_employer=False):
+    """Return the main keyboard based on user type"""
+    buttons = [
+        [KeyboardButton(text="поиск работы"), KeyboardButton(text="поиск сотрудников")],
+        [
+            KeyboardButton(text="заполнить профиль"),
+            KeyboardButton(text="редактировать профиль"),
+            KeyboardButton(text="удалить профиль"),
+        ],
+        [KeyboardButton(text="помощь и обратная связь")]
+    ]
+    
+    # Add subscription button only for employers
+    if is_employer:
+        buttons.append([KeyboardButton(text="подписка для работодателей")])
+    
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+
+# Default main keyboard (without subscription button)
 main_buttons = [
     [KeyboardButton(text="поиск работы"), KeyboardButton(text="поиск сотрудников")],
     [
@@ -27,10 +46,25 @@ main_buttons = [
     ],
     [
         KeyboardButton(text="помощь и обратная связь"),
-        KeyboardButton(text="подписка для работодателей"),
+        #KeyboardButton(text="подписка для работодателей"),
     ],
 ]
 main_kb = ReplyKeyboardMarkup(keyboard=main_buttons, resize_keyboard=True)
+
+# Employer main keyboard (with subscription button)
+employer_main_buttons = [
+    [KeyboardButton(text="поиск работы"), KeyboardButton(text="поиск сотрудников")],
+    [
+        KeyboardButton(text="заполнить профиль"),
+        KeyboardButton(text="редактировать профиль"),
+        KeyboardButton(text="удалить профиль"),
+    ],
+    [
+        KeyboardButton(text="помощь и обратная связь"),
+        KeyboardButton(text="подписка для работодателей"),
+    ],
+]
+employer_main_kb = ReplyKeyboardMarkup(keyboard=employer_main_buttons, resize_keyboard=True)
 
 job_title_buttons = [
     [
@@ -43,14 +77,14 @@ job_title_kb = InlineKeyboardMarkup(inline_keyboard=job_title_buttons)
 
 
 def change_keyboard_time_zone(timezone_value=0):
-    keyboard = types.InlineKeyboardMarkup(
+    timezone_display = f"UTC{'+' if timezone_value > 0 else ''}{timezone_value}"
+    
+    keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                types.InlineKeyboardButton(text="<", callback_data="decrease"),
-                types.InlineKeyboardButton(
-                    text=str(timezone_value), callback_data="time_zone_callback"
-                ),
-                types.InlineKeyboardButton(text=">", callback_data="increase"),
+                InlineKeyboardButton(text="<", callback_data="decrease"),
+                InlineKeyboardButton(text=timezone_display, callback_data="time_zone_callback"),
+                InlineKeyboardButton(text=">", callback_data="increase"),
             ]
         ]
     )
