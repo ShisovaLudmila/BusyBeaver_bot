@@ -1,151 +1,102 @@
 from aiogram import F, Router
-from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup , CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram import types
 from aiogram.filters import Command
-from all_kb import get_employer_kb, after_respond_kb_2, MyCallback, MyCallback_after
+from all_kb import get_employer_kb, after_respond_kb_2, MyCallback, MyCallback_after , main_kb
 from state_list import find_employee
 from handlers.employer_form import employer_selection
 from utils import send_vacancy_message, send_not_fully_vacancy_message
 from create_bot import bot, db, logger
 from datetime import timedelta
-
+from send_not_full_vacancy_message import send_not_fully_vacancy_message
 router = Router()
+from datetime import datetime
 
-
-@router.message(Command("find_employee"))
+@router.message(Command("поиск сотрудников"))
 @router.message(F.text == "поиск сотрудников")
 async def find_employee_handler(message: Message, state: FSMContext):
     logger.info(f"User {message.from_user.id} initiated employee search.")
-    if db.get_tg_id_employer(message.from_user.id) is None:
-        logger.info(f"User {message.from_user.id} has no employer profile.")
-        await message.answer(
-            "у вас нет профиля работодателя, давайте заполним данные чтобы вы могли начать поиск"
-        )
-        await employer_selection(message, state)
-        return
-
-    if db.get_end_of_free_week_subscription(message.from_user.id)[0] is not None:
-        logger.info(f"User {message.from_user.id} has a free week subscription.")
-        await message.answer(
-            f"Как новой пользователь у вас доступна бесплатная пробная подписка на 1 неделю до {db.get_end_of_free_week_subscription(message.from_user.id)[0]}"
-        )
-    elif db.get_end_of_subscription(message.from_user.id)[0] is not None:
-        logger.info(f"User {message.from_user.id} has a paid subscription.")
-        await message.answer(
-            f"У вас активна платная подписка до {db.get_end_of_subscription(message.from_user.id)[0]} (мск)"
-        )
-    elif db.get_free_vacancies_week(message.from_user.id)[0] >= 1:
-        logger.info(f"User {message.from_user.id} has free vacancies left.")
-        await message.answer(
-            f"На этой неделе у вас осталось {db.get_free_vacancies_week(message.from_user.id)[0]} / 3 бесплатных анкет. Также вы можете купить подписку /pay для безлимитного пользования на 1, 3, 6 месяцев."
-        )
-    else:
-        logger.info(f"User {message.from_user.id} has no free vacancies left.")
-        await message.answer(
-            "У вас закончились бесплатные анкеты на этой неделе, вы не можете отвечать на вакансии. Вы можете купить платную подписку /pay для безлимитного пользования 1, 3, 6 месяцев."
-        )
-
-    await state.set_state(find_employee.get_employee)
-    employee_data = db.employer_match(message.from_user.id)
-    index = 0
-    await state.update_data(employee_data=employee_data, index=index)
-
-    if index < len(employee_data):
-        logger.info(f"User {message.from_user.id} found matching vacancies.")
-        await message.answer("подходящие вам вакансии", reply_markup=get_employer_kb)
-    else:
-        logger.info(f"User {message.from_user.id} found no matching vacancies.")
-        await message.answer("На данный момент вакансий нет")
-        return
-
-    if db.get_end_of_free_week_subscription(message.from_user.id)[0] is not None:
-        if (
-            message.date.replace(tzinfo=None) + timedelta(hours=3)
-            <= db.get_end_of_free_week_subscription(message.from_user.id)[0]
-        ):
-            await send_vacancy_message(
-                message, employee_data, index, state=await state.get_state()
+    
+    # Debug logging to check employer profile
+    employer_profile = db.get_tg_id_employer(message.from_user.id)
+    logger.info(f"Employer profile check result: {employer_profile}")
+    
+    if employer_profile is not None:
+        await state.set_state(find_employee.get_employee)
+        await state.update_data(index=0)
+        
+        # Get matching employees
+        employee_data = db.employer_match(message.from_user.id)
+        logger.info(f"Found {len(employee_data)} matching employees for employer {message.from_user.id}")
+        
+        if len(employee_data) > 0:
+            # Check subscription status
+            if db.get_end_of_free_week_subscription(message.from_user.id)[0] is not None:
+                # Free week subscription
+                await send_vacancy_message(message, employee_data, 0, "find_employee:get_employee")
+            elif db.get_end_of_subscription(message.from_user.id)[0] is not None:
+                # Paid subscription
+                await send_vacancy_message(message, employee_data, 0, "find_employee:get_employee")
+            elif db.get_free_vacancies_week(message.from_user.id)[0] >= 1:
+                # Has free vacancies left
+                await send_vacancy_message(message, employee_data, 0, "find_employee:get_employee")
+            else:
+                # No subscription or free vacancies
+                await send_not_fully_vacancy_message(message, employee_data, 0)
+                await message.answer(
+                    "У вас закончились бесплатные просмотры на этой неделе. Приобретите подписку для неограниченного доступа.",
+                    reply_markup=main_kb
+                )
+                await state.clear()
+        else:
+            await message.answer(
+                "К сожалению, подходящих кандидатов не найдено. Попробуйте изменить параметры в своем профиле или проверить позже.",
+                reply_markup=main_kb
             )
-
-    elif db.get_end_of_subscription(message.from_user.id)[0] is not None:
-        if (
-            message.date.replace(tzinfo=None) + timedelta(hours=3)
-            <= db.get_end_of_subscription(message.from_user.id)[0]
-        ):
-            await send_vacancy_message(
-                message, employee_data, index, state=await state.get_state()
-            )
-
-    elif db.get_free_vacancies_week(message.from_user.id)[0] >= 1:
-        await send_vacancy_message(
-            message, employee_data, index, state=await state.get_state()
-        )
-        db.subtract_free_vacancies(message.from_user.id)
+            await state.clear()
     else:
-        await send_not_fully_vacancy_message(message, employee_data, index)
+        logger.warning(f"User {message.from_user.id} has no employer profile for employee search.")
+        await message.answer(
+            "У вас нет анкеты работодателя. Пожалуйста, заполните профиль, чтобы начать поиск сотрудников.",
+            reply_markup=main_kb
+        )
+
 
 
 @router.message(F.text == "далее", find_employee.get_employee)
-async def find_job_next_handler(message: Message, state: FSMContext):
+async def next_employee_handler(message: Message, state: FSMContext):
+    logger.info(f"User {message.from_user.id} requested next employee.")
     data = await state.get_data()
-    employee_data = data.get("employee_data", [])
     index = data.get("index", 0) + 1
-
-    if db.get_end_of_free_week_subscription(message.from_user.id)[0] is not None:
-        if (
-            message.date.replace(tzinfo=None) + timedelta(hours=3)
-            <= db.get_end_of_free_week_subscription(message.from_user.id)[0]
-        ):
-            if index < len(employee_data):
-                logger.info(
-                    f"User {message.from_user.id} viewing next job, index {index}."
-                )
-                await state.update_data(index=index)
-                await send_vacancy_message(
-                    message, employee_data, index, state=await state.get_state()
-                )
-            else:
-                logger.info(f"User {message.from_user.id} has no more jobs to view.")
-                await message.answer("Больше вакансий нет.")
-
-    elif db.get_end_of_subscription(message.from_user.id)[0] is not None:
-        if (
-            message.date.replace(tzinfo=None) + timedelta(hours=3)
-            <= db.get_end_of_subscription(message.from_user.id)[0]
-        ):
-            if index < len(employee_data):
-                logger.info(
-                    f"User {message.from_user.id} viewing next job, index {index}."
-                )
-                await state.update_data(index=index)
-                await send_vacancy_message(
-                    message, employee_data, index, state=await state.get_state()
-                )
-            else:
-                logger.info(f"User {message.from_user.id} has no more jobs to view.")
-                await message.answer("Больше вакансий нет.")
-
-    elif db.get_free_vacancies_week(message.from_user.id)[0] >= 1:
-        if index < len(employee_data):
-            logger.info(f"User {message.from_user.id} viewing next job, index {index}.")
-            await state.update_data(index=index)
-            await send_vacancy_message(
-                message, employee_data, index, state=await state.get_state()
-            )
-            db.subtract_free_vacancies(message.from_user.id)
+    await state.update_data(index=index)
+    
+    employee_data = db.employer_match(message.from_user.id)
+    if len(employee_data) > index:
+        # Check subscription status
+        if db.get_end_of_free_week_subscription(message.from_user.id)[0] is not None:
+            # Free week subscription
+            await send_vacancy_message(message, employee_data, index, "find_employee:get_employee")
+        elif db.get_end_of_subscription(message.from_user.id)[0] is not None:
+            # Paid subscription
+            await send_vacancy_message(message, employee_data, index, "find_employee:get_employee")
+        elif db.get_free_vacancies_week(message.from_user.id)[0] >= 1:
+            # Has free vacancies left
+            await send_vacancy_message(message, employee_data, index, "find_employee:get_employee")
         else:
-            logger.info(f"User {message.from_user.id} has no more jobs to view.")
-            await message.answer("Больше вакансий нет.")
-
-    else:
-        if index < len(employee_data):
-            logger.info(f"User {message.from_user.id} viewing next job, index {index}.")
-            await state.update_data(index=index)
+            # No subscription or free vacancies
             await send_not_fully_vacancy_message(message, employee_data, index)
-        else:
-            logger.info(f"User {message.from_user.id} has no more jobs to view.")
-            await message.answer("Больше вакансий нет.")
+            await message.answer(
+                "У вас закончились бесплатные просмотры на этой неделе. Приобретите подписку для неограниченного доступа.",
+                reply_markup=main_kb
+            )
+            await state.clear()
+    else:
+        await message.answer(
+            "Вы просмотрели всех доступных кандидатов. Возвращайтесь позже, чтобы увидеть новые профили.",
+            reply_markup=main_kb
+        )
+        await state.clear()
 
 
 @router.callback_query(

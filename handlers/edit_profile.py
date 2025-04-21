@@ -135,17 +135,22 @@ async def update_value(message: Message, state: FSMContext):
 )
 async def callback_change_timezone(call: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    timezone_value = data.get("time_zone", 0)
+    timezone_value = data.get("time_zone", 0)  # Default to 0 if not set
 
     if call.data == "increase" and timezone_value < 14:
         timezone_value += 1
     elif call.data == "decrease" and timezone_value > -12:
         timezone_value -= 1
 
+    # Update the time zone value in state
     await state.update_data(time_zone=timezone_value)
 
+    # Create a new keyboard with the updated value
     keyboard = change_keyboard_time_zone(timezone_value)
-    await call.message.edit_reply_markup(reply_markup=keyboard)
+    await call.message.edit_text(
+        f"Выберите ваш часовой пояс (UTC) с помощью стрелок < > и нажмите на число для подтверждения:",
+        reply_markup=keyboard
+    )
     await call.answer()
 
 
@@ -154,16 +159,16 @@ async def callback_change_timezone(call: types.CallbackQuery, state: FSMContext)
     edit_employee.update_value,
 )
 async def callback_timezone_selection(call: types.CallbackQuery, state: FSMContext):
-
     user_data = db.get_employee(call.from_user.id)
     data = await state.get_data()
     field_to_update = data["state_item"].state_in_memory_name
-    value = data["time_zone"]
+    timezone_value = data.get("time_zone", 0)
 
-    db.change_employee_field(field_to_update, value, call.from_user.id)
-
+    # Save the time zone value to the database
+    db.change_employee_field(field_to_update, timezone_value, call.from_user.id)
+    
     await call.message.answer(
-        "Изменили",
+        f"Часовой пояс успешно изменен на UTC{'+' if timezone_value > 0 else ''}{timezone_value}",
         reply_markup=(
             change_employee_kb_1 if user_data[7] != "" else change_employee_kb_2
         ),
@@ -448,6 +453,56 @@ async def callback_timezone_selection(call: types.CallbackQuery, state: FSMConte
     )
 
     await state.set_state(edit_employer.choose_field)
+
+
+
+@router.callback_query(
+    F.data.in_(["decrease", "increase"]),
+    edit_employer.update_value,
+)
+async def callback_change_timezone_employer(call: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    timezone_value = data.get("time_zone", 0)  # Default to 0 if not set
+
+    if call.data == "increase" and timezone_value < 14:
+        timezone_value += 1
+    elif call.data == "decrease" and timezone_value > -12:
+        timezone_value -= 1
+
+    # Update the time zone value in state
+    await state.update_data(time_zone=timezone_value)
+
+    # Create a new keyboard with the updated value
+    keyboard = change_keyboard_time_zone(timezone_value)
+    await call.message.edit_text(
+        f"Выберите ваш часовой пояс (UTC) с помощью стрелок < > и нажмите на число для подтверждения:",
+        reply_markup=keyboard
+    )
+    await call.answer()
+
+
+@router.callback_query(
+    F.data == "time_zone_callback",
+    edit_employer.update_value,
+)
+async def callback_timezone_selection_employer(call: types.CallbackQuery, state: FSMContext):
+    user_data = db.get_employer(call.from_user.id)
+    data = await state.get_data()
+    field_to_update = data["state_item"].state_in_memory_name
+    timezone_value = data.get("time_zone", 0)
+
+    # Save the time zone value to the database
+    db.change_employer_field(field_to_update, timezone_value, call.from_user.id)
+    
+    await call.message.answer(
+        f"Часовой пояс успешно изменен на UTC{'+' if timezone_value > 0 else ''}{timezone_value}",
+        reply_markup=(
+            change_employer_kb_1 if user_data[5] != "" else change_employer_kb_2
+        ),
+    )
+
+    await state.set_state(edit_employer.choose_field)
+
 
 
 @router.callback_query(F.data == "фулл-тайм", edit_employer.update_value)
