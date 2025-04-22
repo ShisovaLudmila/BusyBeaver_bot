@@ -11,8 +11,8 @@ ROBOKASSA_TEST_MODE = 1  # Set to 0 in production
 
 ADMIN_IDS = [123456789]  
 
-HOST ="tgbot-gorrlila123.db-msk0.amvera.tech"
+HOST ="database-feranoon.db-msk0.amvera.tech"
 PORT = 5432
-DB_NAME = "telegramdb"
-USER = "onlyvictory"
-PASSWORD = "OcrQRD8Z6b1"
+DB_NAME = "database"
+USER = "database"
+PASSWORD = "database"
