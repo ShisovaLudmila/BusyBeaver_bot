@@ -1,6 +1,6 @@
 
 POSTGRES_DATA='/var/lib/postgresql/data'
-BOT_TOKEN = "7416286583:AAEgCDPOJOyGyZB_F5_FMw_SwoK07Sa3sZE"
+BOT_TOKEN = "8047293565:AAHmcc6YiPan32F7nFApe7MpbJeloZHou7I"
 
 
 PAYMENTS_FREE = True  # Set to False in production
